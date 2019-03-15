@@ -1,0 +1,72 @@
+---
+- name: test
+  hosts: webserver
+  become: true
+  tasks:  
+  - name: Install Apache Webserver
+    yum: pkg=httpd state=latest
+  - name: ensure a list of packages installed
+    yum:
+     name: "{{ packages }}"
+    vars:
+     packages:
+     - httpd
+     - httpd-tools
+
+  - name: Add line to httpd.conf
+    blockinfile:
+          dest: "/etc/httpd/conf/httpd.conf"
+          content: | 
+           LoadModule proxy_module modules/mod_proxy.so
+           LoadModule proxy_balancer_module modules/mod_proxy_balancer.so
+           ProxyPreserveHost On
+           ProxyPass / http://3.89.92.21:8080/
+           ProxyPassReverse / http://3.89.92.21:8080/
+           
+  - name: Enable Apache on system reboot
+    service: name=httpd enabled=yes
+    notify: restart apache
+  - name: restart apache
+    service: name=httpd state=restarted
+
+- name: Install Jenkins
+  hosts: appserver
+  become: true
+  tasks:
+    - name: Install yum
+      yum:
+        name:
+          - wget
+          - java-1.8.0-openjdk
+    - name: Download jenkins.repo
+      get_url:
+        url: http://pkg.jenkins-ci.org/redhat-stable/jenkins.repo
+        dest: /etc/yum.repos.d/jenkins.repo
+   
+    - name: Import Jenkins Key
+      rpm_key:
+        state: present
+        key: https://jenkins-ci.org/redhat/jenkins-ci.org.key
+
+    - name: Install Jenkins
+      yum:
+        name: jenkins
+        state: present
+
+    - name: Start & Enable Jenkins
+      systemd:
+        name: jenkins
+        state: started
+        enabled: true
+
+    - name: Sleep for 30 seconds and continue with play
+      wait_for: timeout=30
+
+    - name: Get init password Jenkins
+      shell: cat /var/lib/jenkins/secrets/initialAdminPassword
+      changed_when: false
+      register: result
+
+    - name: Print init password Jenkins
+      debug:
+        var: result.stdout
